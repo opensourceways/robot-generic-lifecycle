@@ -16,28 +16,35 @@ package main
 import (
 	"errors"
 	"fmt"
-	"github.com/opensourceways/go-gitcode/openapi"
 	"github.com/opensourceways/robot-framework-lib/client"
 	"github.com/opensourceways/robot-framework-lib/config"
 	"github.com/opensourceways/robot-framework-lib/framework"
+	"github.com/opensourceways/robot-framework-lib/utils"
 	"github.com/sirupsen/logrus"
 	"regexp"
 )
 
 type iClient interface {
-	CreatePRComment(owner, repo, number, comment string) (result any, success bool, err error)
-	CreateIssueComment(owner, repo, number, comment string) (result any, success bool, err error)
-	GetRepoAllMember(org, repo string) (result []any, success bool, err error)
+	CreatePRComment(org, repo, number, comment string) (success bool)
+	CreateIssueComment(org, repo, number, comment string) (success bool)
+	CheckPermission(org, repo, username, permission string) (pass, success bool)
+	UpdateIssue(org, repo, number, state string) (success bool)
+	UpdatePR(org, repo, number, state string) (success bool)
+	GetIssueLinkedPRNumber(org, repo, number string) (num int, success bool)
 }
 
 type robot struct {
-	cli iClient
-	cnf *configuration
+	cli       iClient
+	cnf       *configuration
+	log       *logrus.Entry
+	interrupt bool
 }
 
 func newRobot(c *configuration, token []byte) *robot {
-	lgr := logrus.NewEntry(logrus.StandardLogger())
-	return &robot{cli: client.NewClient(token, lgr), cnf: c}
+	m := make(logrus.Fields, 2)
+	m["component"] = component
+	logger := framework.NewLogger(m)
+	return &robot{cli: client.NewClient(token, logger), cnf: c, log: logger}
 }
 
 func (bot *robot) NewConfig() config.Configmap {
@@ -45,32 +52,12 @@ func (bot *robot) NewConfig() config.Configmap {
 }
 
 func (bot *robot) RegisterEventHandler(p framework.HandlerRegister) {
-	p.RegisterIssueCommentHandler(bot.handleIssueCommentEvent)
-	p.RegisterPullRequestCommentHandler(bot.handlePullRequestCommentEvent)
+	p.RegisterIssueCommentHandler(bot.handleCommentEvent)
+	p.RegisterPullRequestCommentHandler(bot.handleCommentEvent)
 }
 
-func checkEventInvalid(evt *client.GenericEvent) bool {
-	if evt.Action != nil && *evt.Action != "open" {
-		return true
-	}
-
-	if evt.State != nil && *evt.State != "opened" {
-		return true
-	}
-
-	if evt.Org != nil && *evt.Org == "" {
-		return true
-	}
-
-	if evt.Repo != nil && *evt.Repo == "" {
-		return true
-	}
-
-	if evt.Author != nil && *evt.Author == "" {
-		return true
-	}
-
-	return false
+func (bot *robot) GetLogger() *logrus.Entry {
+	return bot.log
 }
 
 func (bot *robot) getConfig(cnf config.Configmap, org, repo string) (*botConfig, error) {
@@ -83,9 +70,12 @@ func (bot *robot) getConfig(cnf config.Configmap, org, repo string) (*botConfig,
 }
 
 const (
-	eventStateOpened  = "opened"
-	eventStateClosed  = "closed"
-	emptyErrorMessage = ""
+	eventStateOpened                      = "opened"
+	eventStateClosed                      = "closed"
+	commentNoPermissionOperateIssue       = `***@%s*** you can't %s an issue unless you are the author of it or a collaborator.`
+	commentIssueNeedsLinkPR               = `***@%s*** you can't close an issue unless the issue has link pull requests.`
+	commentListLinkingPullRequestsFailure = `***@%s*** fail to check link pull requests of the issue, please retry.`
+	commentNoPermissionOperatePR          = `***@%s*** you can't %s a pull request unless you are the author of it or a collaborator.`
 )
 
 var (
@@ -93,100 +83,88 @@ var (
 	regexpCloseComment  = regexp.MustCompile(`(?mi)^/close\s*$`)
 )
 
-func checkEvent(evt *client.GenericEvent) (bool, string) {
-	checking(evt.Comment, "", false, "author is empty")
-	if regexpReopenComment.MatchString(*evt.Comment) {
-		checking(evt.State, eventStateClosed, false, "do reopen the event, but it's state is not "+eventStateClosed)
+func (bot *robot) handleCommentEvent(evt *client.GenericEvent, cnf config.Configmap) {
+	org, repo, number := utils.GetString(evt.Org), utils.GetString(evt.Repo), utils.GetString(evt.Number)
+	configmap, err := bot.getConfig(cnf, org, repo)
+	if err != nil {
+		bot.log.WithError(err).Error()
+		return
 	}
-	if regexpCloseComment.MatchString(*evt.Comment) {
-		checking(evt.State, eventStateOpened, false, "event state is not "+eventStateOpened)
+
+	bot.handleReopenEvent(evt, org, repo, number)
+	if bot.interrupt {
+		return
 	}
-	checking(evt.State, eventStateOpened, false, "event state is not "+eventStateOpened)
-	checking(evt.Org, eventStateOpened, true, "org is empty")
-	checking(evt.Repo, eventStateOpened, false, "repo is empty")
-	checking(evt.Author, eventStateOpened, false, "author is empty")
-	return true, ""
+
+	bot.handleCloseEvent(evt, configmap, org, repo, number)
 }
 
-func checking(key *string, value string, equal bool, message string) string {
-	if key == nil {
-		return emptyErrorMessage
+func (bot *robot) handleReopenEvent(evt *client.GenericEvent, org, repo, number string) {
+	comment, state := utils.GetString(evt.Comment), utils.GetString(evt.State)
+	commenter, author := utils.GetString(evt.Commenter), utils.GetString(evt.Author)
+	if utils.GetBool(evt.CommentOfPR) == "false" && regexpReopenComment.MatchString(comment) && state == eventStateClosed {
+		bot.interrupt = true
+		if !bot.checkCommenterPermission(org, repo, author, commenter, func() {
+			bot.cli.CreateIssueComment(org, repo, number, fmt.Sprintf(commentNoPermissionOperateIssue, commenter, "reopen"))
+		}) {
+			return
+		}
+
+		bot.cli.UpdateIssue(org, repo, number, eventStateOpened)
 	}
-	if equal && *key == value {
-		return message
-	}
-	if *key != value {
-		return message
-	}
-	return emptyErrorMessage
 }
 
-func (bot *robot) handleIssueCommentEvent(evt *client.GenericEvent, cnf config.Configmap, lgr *logrus.Entry) error {
-	if checkEventInvalid(evt) {
-		return errors.New("issue status is invalid")
-	}
+func (bot *robot) handleCloseEvent(evt *client.GenericEvent, configmap *botConfig, org, repo, number string) {
+	comment, state := utils.GetString(evt.Comment), utils.GetString(evt.State)
+	commenter, author := utils.GetString(evt.Commenter), utils.GetString(evt.Author)
+	if regexpCloseComment.MatchString(comment) && state == eventStateOpened {
+		if !bot.checkCommenterPermission(org, repo, author, commenter, func() {
+			if utils.GetBool(evt.CommentOfPR) == "true" {
+				bot.cli.CreatePRComment(org, repo, number, fmt.Sprintf(commentNoPermissionOperatePR, commenter, "close"))
+			} else {
+				bot.cli.CreateIssueComment(org, repo, number, fmt.Sprintf(commentNoPermissionOperateIssue, commenter, "close"))
+			}
+		}) {
+			return
+		}
 
-	cfg, err := bot.getConfig(cnf, *evt.Org, *evt.Repo)
-	if err != nil {
-		return err
-	}
+		if utils.GetBool(evt.CommentOfPR) == "true" {
+			bot.cli.UpdatePR(org, repo, number, eventStateClosed)
+			return
+		}
 
-	comment, err := bot.genWelcomeMessage(*evt.Org, *evt.Repo, *evt.Author, cfg, lgr)
-	if err != nil {
-		return err
+		bot.checkIssueNeedLinkingPR(configmap, org, repo, number, commenter)
 	}
-
-	_, success, err := bot.cli.CreateIssueComment(*evt.Org, *evt.Repo, *evt.Number, comment)
-	lgr.Infof("Issue[%s/%s/%s] create comment result: %v", *evt.Org, *evt.Repo, *evt.Number, success)
-	return nil
 }
 
-func (bot *robot) handlePullRequestCommentEvent(evt *client.GenericEvent, cnf config.Configmap, lgr *logrus.Entry) error {
-	if checkEventInvalid(evt) {
-		return errors.New("PR status is invalid")
-	}
+func (bot *robot) checkIssueNeedLinkingPR(configmap *botConfig, org, repo, number, commenter string) {
+	if configmap.NeedIssueHasLinkPullRequests {
+		// issue can be closed only when its linking PR exists
+		num, success := bot.cli.GetIssueLinkedPRNumber(org, repo, number)
+		bot.log.Infof("list the issue[%s/%s,%s] linking PR number is successful: %v, number: %d", org, repo, number, success, num)
+		if !success {
+			bot.cli.CreateIssueComment(org, repo, number, fmt.Sprintf(commentListLinkingPullRequestsFailure, commenter))
+			return
+		}
 
-	cfg, err := bot.getConfig(cnf, *evt.Org, *evt.Repo)
-	if err != nil {
-		return err
-	}
-
-	comment, err := bot.genWelcomeMessage(*evt.Org, *evt.Repo, *evt.Author, cfg, lgr)
-	if err != nil {
-		return err
-	}
-
-	_, success, err := bot.cli.CreatePRComment(*evt.Org, *evt.Repo, *evt.Number, comment)
-	lgr.Infof("PR[%s/%s/%s] create comment result: %v", *evt.Org, *evt.Repo, *evt.Number, success)
-	return err
-}
-
-func (bot *robot) genWelcomeMessage(org, repo, author string, cfg *botConfig, lgr *logrus.Entry) (string, error) {
-
-	arr, success, err := bot.cli.GetRepoAllMember(org, repo)
-	lgr.Infof("PR[%s/%s] get all member result: %v", org, repo, success)
-	if !success || err != nil {
-		return fmt.Sprintf(cfg.WelcomeMessage, author, cfg.CommunityName, cfg.CommunityName, cfg.CommunityName, cfg.CommandLink), err
-	}
-
-	maintainers := make([]string, 0, len(arr))
-	// TODO 后面改为反射获取统一结构
-	for i := range arr {
-		u := arr[i].(openapi.User)
-		if u.UserName != nil && u.Permissions != nil && u.Permissions.Admin != nil && *u.Permissions.Admin {
-			maintainers = append(maintainers, *u.UserName)
+		if num == 0 {
+			bot.cli.CreateIssueComment(org, repo, number, fmt.Sprintf(commentIssueNeedsLinkPR, commenter))
+			return
 		}
 	}
 
-	// TODO
-	author = fmt.Sprintf("[@%s](https://gitcode.com/%s)", author, author)
-	maintainersList := ""
-	for i := 0; i < len(maintainers); i++ {
-		maintainersList = maintainersList + fmt.Sprintf(", [@%s](https://gitcode.com/%s)", maintainers[i], maintainers[i])
+	bot.cli.UpdateIssue(org, repo, number, eventStateClosed)
+}
+
+func (bot *robot) checkCommenterPermission(org, repo, author, commenter string, fn func()) (pass bool) {
+	if author == commenter {
+		return true
 	}
-	if len(maintainers) > 2 {
-		maintainersList = maintainersList[2:]
+	pass, success := bot.cli.CheckPermission(org, repo, commenter, "")
+	bot.log.Infof("request success: %t, the %s has permission to the repo[%s/%s]: %t", success, commenter, org, repo, pass)
+
+	if success && !pass {
+		fn()
 	}
-	return fmt.Sprintf(cfg.WelcomeMessage, author, cfg.CommunityName, cfg.CommunityName,
-		maintainersList, cfg.CommandLink), nil
+	return pass && success
 }

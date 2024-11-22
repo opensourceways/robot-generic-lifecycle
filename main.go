@@ -15,16 +15,13 @@ package main
 
 import (
 	"flag"
-	"github.com/opensourceways/robot-framework-lib/config"
 	"github.com/opensourceways/robot-framework-lib/framework"
-	"github.com/opensourceways/server-common-lib/logrusutil"
 	"os"
 )
 
 const component = "robot-universal-lifecycle"
 
 func main() {
-	logrusutil.ComponentInit(component)
 
 	opt := new(robotOptions)
 	cnf, token := opt.gatherOptions(flag.NewFlagSet(os.Args[0], flag.ExitOnError), os.Args[1:]...)
@@ -33,9 +30,5 @@ func main() {
 	}
 
 	bot := newRobot(cnf, token)
-	framework.StartupServer(
-		framework.NewServer(bot, opt.service, config.ServerAdditionOptions{HandlePath: "/" + opt.handlePath}),
-		opt.service,
-		config.ServerAdditionOptions{},
-	)
+	framework.StartupServer(framework.NewServer(bot, opt.service), opt.service)
 }

@@ -21,7 +21,13 @@ import (
 
 type botConfig struct {
 	config.RepoFilter
+	// true: issue can be closed only when its linking PR exists
+	// false: issue can be directly closed
 	NeedIssueHasLinkPullRequests bool `json:"need_issue_has_link_pull_requests,omitempty"`
+	// sig information url
+	SigInfoURL string `json:"sig_info_url" required:"true"`
+	// use as request parameter for get sig information
+	CommunityName string `json:"community_name" required:"true"`
 }
 
 func (c *botConfig) validate() error {

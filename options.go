@@ -16,23 +16,21 @@ package main
 import (
 	"flag"
 	"github.com/opensourceways/robot-framework-lib/config"
-	"github.com/opensourceways/server-common-lib/options"
 	"github.com/opensourceways/server-common-lib/secret"
 	"github.com/sirupsen/logrus"
 	"os"
 )
 
 type robotOptions struct {
-	service    options.ServiceOptions
-	tokenPath  string
-	delToken   bool
-	handlePath string
-	shutdown   bool
+	service   config.ServerExpansionOptions
+	delToken  bool
+	shutdown  bool
+	tokenPath string
 }
 
 func (o *robotOptions) loadToken(fs *flag.FlagSet) func() []byte {
 	fs.StringVar(
-		&o.tokenPath, "token-path", "/vault/secrets/token",
+		&o.tokenPath, "token-path", "",
 		"Path to the file containing the token secret.",
 	)
 	fs.BoolVar(
@@ -58,22 +56,18 @@ func (o *robotOptions) loadToken(fs *flag.FlagSet) func() []byte {
 
 func (o *robotOptions) gatherOptions(fs *flag.FlagSet, args ...string) (*configuration, []byte) {
 
-	o.service.AddFlags(fs)
+	o.service.ExpandAddFlags(fs)
 	tokenFunc := o.loadToken(fs)
-	fs.StringVar(
-		&o.handlePath, "handle-path", "webhook",
-		"http server handle's restapi path",
-	)
 
 	_ = fs.Parse(args)
 
-	if err := o.service.Validate(); err != nil {
+	if err := o.service.ExpandValidate(); err != nil {
 		logrus.Errorf("invalid service options, err:%s", err.Error())
 		o.shutdown = true
 		return nil, nil
 	}
-	configmap := config.NewConfigmapAgent(&configuration{})
-	if err := configmap.Load(o.service.ConfigFile); err != nil {
+	configmap, err := config.NewConfigmapAgent(&configuration{}, o.service.ConfigFile)
+	if err != nil {
 		logrus.Errorf("load config, err:%s", err.Error())
 		return nil, nil
 	}
