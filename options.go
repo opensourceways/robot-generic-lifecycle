@@ -15,6 +15,7 @@ package main
 
 import (
 	"flag"
+	"github.com/opensourceways/robot-framework-lib/client"
 	"github.com/opensourceways/robot-framework-lib/config"
 	"github.com/opensourceways/server-common-lib/secret"
 	"github.com/sirupsen/logrus"
@@ -22,7 +23,7 @@ import (
 )
 
 type robotOptions struct {
-	service   config.ServerExpansionOptions
+	service   config.FrameworkOptions
 	delToken  bool
 	shutdown  bool
 	tokenPath string
@@ -56,12 +57,12 @@ func (o *robotOptions) loadToken(fs *flag.FlagSet) func() []byte {
 
 func (o *robotOptions) gatherOptions(fs *flag.FlagSet, args ...string) (*configuration, []byte) {
 
-	o.service.ExpandAddFlags(fs)
+	o.service.AddFlagsComposite(fs)
 	tokenFunc := o.loadToken(fs)
 
 	_ = fs.Parse(args)
 
-	if err := o.service.ExpandValidate(); err != nil {
+	if err := o.service.ValidateComposite(); err != nil {
 		logrus.Errorf("invalid service options, err:%s", err.Error())
 		o.shutdown = true
 		return nil, nil
@@ -72,5 +73,13 @@ func (o *robotOptions) gatherOptions(fs *flag.FlagSet, args ...string) (*configu
 		return nil, nil
 	}
 
-	return configmap.GetConfigmap().(*configuration), tokenFunc()
+	cnf := configmap.GetConfigmap().(*configuration)
+	client.SetSigInfoBaseURL(cnf.SigInfoURL)
+	client.SetCommunityName(cnf.CommunityName)
+	commentNoPermissionOperateIssue = cnf.CommentNoPermissionOperateIssue
+	commentIssueNeedsLinkPR = cnf.CommentIssueNeedsLinkPR
+	commentListLinkingPullRequestsFailure = cnf.CommentListLinkingPullRequestsFailure
+	commentNoPermissionOperatePR = cnf.CommentNoPermissionOperatePR
+
+	return cnf, tokenFunc()
 }

@@ -15,35 +15,32 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"github.com/opensourceways/robot-framework-lib/client"
 	"github.com/opensourceways/robot-framework-lib/config"
 	"github.com/opensourceways/robot-framework-lib/framework"
 	"github.com/opensourceways/robot-framework-lib/utils"
 	"github.com/sirupsen/logrus"
 	"regexp"
+	"strings"
 )
 
 type iClient interface {
 	CreatePRComment(org, repo, number, comment string) (success bool)
 	CreateIssueComment(org, repo, number, comment string) (success bool)
-	CheckPermission(org, repo, username, permission string) (pass, success bool)
+	CheckPermission(org, repo, username string) (pass, success bool)
 	UpdateIssue(org, repo, number, state string) (success bool)
 	UpdatePR(org, repo, number, state string) (success bool)
 	GetIssueLinkedPRNumber(org, repo, number string) (num int, success bool)
 }
 
 type robot struct {
-	cli       iClient
-	cnf       *configuration
-	log       *logrus.Entry
-	interrupt bool
+	cli iClient
+	cnf *configuration
+	log *logrus.Entry
 }
 
 func newRobot(c *configuration, token []byte) *robot {
-	m := make(logrus.Fields, 2)
-	m["component"] = component
-	logger := framework.NewLogger(m)
+	logger := framework.NewLogger().WithField("component", component)
 	return &robot{cli: client.NewClient(token, logger), cnf: c, log: logger}
 }
 
@@ -69,13 +66,18 @@ func (bot *robot) getConfig(cnf config.Configmap, org, repo string) (*botConfig,
 	return nil, errors.New("no config for this repo: " + org + "," + repo)
 }
 
-const (
+var (
 	eventStateOpened                      = "opened"
 	eventStateClosed                      = "closed"
-	commentNoPermissionOperateIssue       = `***@%s*** you can't %s an issue unless you are the author of it or a collaborator.`
-	commentIssueNeedsLinkPR               = `***@%s*** you can't close an issue unless the issue has link pull requests.`
-	commentListLinkingPullRequestsFailure = `***@%s*** fail to check link pull requests of the issue, please retry.`
-	commentNoPermissionOperatePR          = `***@%s*** you can't %s a pull request unless you are the author of it or a collaborator.`
+	commentNoPermissionOperateIssue       = ""
+	commentIssueNeedsLinkPR               = ""
+	commentListLinkingPullRequestsFailure = ""
+	commentNoPermissionOperatePR          = ""
+)
+
+const (
+	placeholderCommenter = "__commenter__"
+	placeholderAction    = "__action__"
 )
 
 var (
@@ -91,27 +93,28 @@ func (bot *robot) handleCommentEvent(evt *client.GenericEvent, cnf config.Config
 		return
 	}
 
-	bot.handleReopenEvent(evt, org, repo, number)
-	if bot.interrupt {
+	if bot.handleReopenEvent(evt, org, repo, number) {
 		return
 	}
 
 	bot.handleCloseEvent(evt, configmap, org, repo, number)
 }
 
-func (bot *robot) handleReopenEvent(evt *client.GenericEvent, org, repo, number string) {
+func (bot *robot) handleReopenEvent(evt *client.GenericEvent, org, repo, number string) (interrupt bool) {
 	comment, state := utils.GetString(evt.Comment), utils.GetString(evt.State)
 	commenter, author := utils.GetString(evt.Commenter), utils.GetString(evt.Author)
-	if utils.GetBool(evt.CommentOfPR) == "false" && regexpReopenComment.MatchString(comment) && state == eventStateClosed {
-		bot.interrupt = true
+	if utils.GetString(evt.CommentKind) == client.CommentOnIssue && regexpReopenComment.MatchString(comment) && state == eventStateClosed {
+		interrupt = true
 		if !bot.checkCommenterPermission(org, repo, author, commenter, func() {
-			bot.cli.CreateIssueComment(org, repo, number, fmt.Sprintf(commentNoPermissionOperateIssue, commenter, "reopen"))
+			bot.cli.CreateIssueComment(org, repo, number,
+				strings.ReplaceAll(strings.ReplaceAll(commentNoPermissionOperateIssue, placeholderCommenter, commenter), placeholderAction, "reopen"))
 		}) {
 			return
 		}
 
 		bot.cli.UpdateIssue(org, repo, number, eventStateOpened)
 	}
+	return
 }
 
 func (bot *robot) handleCloseEvent(evt *client.GenericEvent, configmap *botConfig, org, repo, number string) {
@@ -119,16 +122,18 @@ func (bot *robot) handleCloseEvent(evt *client.GenericEvent, configmap *botConfi
 	commenter, author := utils.GetString(evt.Commenter), utils.GetString(evt.Author)
 	if regexpCloseComment.MatchString(comment) && state == eventStateOpened {
 		if !bot.checkCommenterPermission(org, repo, author, commenter, func() {
-			if utils.GetBool(evt.CommentOfPR) == "true" {
-				bot.cli.CreatePRComment(org, repo, number, fmt.Sprintf(commentNoPermissionOperatePR, commenter, "close"))
+			if utils.GetString(evt.CommentKind) == client.CommentOnIssue {
+				bot.cli.CreateIssueComment(org, repo, number,
+					strings.ReplaceAll(strings.ReplaceAll(commentNoPermissionOperateIssue, placeholderCommenter, commenter), placeholderAction, "close"))
 			} else {
-				bot.cli.CreateIssueComment(org, repo, number, fmt.Sprintf(commentNoPermissionOperateIssue, commenter, "close"))
+				bot.cli.CreatePRComment(org, repo, number,
+					strings.ReplaceAll(strings.ReplaceAll(commentNoPermissionOperatePR, placeholderCommenter, commenter), placeholderAction, "close"))
 			}
 		}) {
 			return
 		}
 
-		if utils.GetBool(evt.CommentOfPR) == "true" {
+		if utils.GetString(evt.CommentKind) != client.CommentOnIssue {
 			bot.cli.UpdatePR(org, repo, number, eventStateClosed)
 			return
 		}
@@ -143,12 +148,12 @@ func (bot *robot) checkIssueNeedLinkingPR(configmap *botConfig, org, repo, numbe
 		num, success := bot.cli.GetIssueLinkedPRNumber(org, repo, number)
 		bot.log.Infof("list the issue[%s/%s,%s] linking PR number is successful: %v, number: %d", org, repo, number, success, num)
 		if !success {
-			bot.cli.CreateIssueComment(org, repo, number, fmt.Sprintf(commentListLinkingPullRequestsFailure, commenter))
+			bot.cli.CreateIssueComment(org, repo, number, strings.ReplaceAll(commentListLinkingPullRequestsFailure, placeholderCommenter, commenter))
 			return
 		}
 
 		if num == 0 {
-			bot.cli.CreateIssueComment(org, repo, number, fmt.Sprintf(commentIssueNeedsLinkPR, commenter))
+			bot.cli.CreateIssueComment(org, repo, number, strings.ReplaceAll(commentIssueNeedsLinkPR, placeholderCommenter, commenter))
 			return
 		}
 	}
@@ -160,7 +165,7 @@ func (bot *robot) checkCommenterPermission(org, repo, author, commenter string, 
 	if author == commenter {
 		return true
 	}
-	pass, success := bot.cli.CheckPermission(org, repo, commenter, "")
+	pass, success := bot.cli.CheckPermission(org, repo, commenter)
 	bot.log.Infof("request success: %t, the %s has permission to the repo[%s/%s]: %t", success, commenter, org, repo, pass)
 
 	if success && !pass {

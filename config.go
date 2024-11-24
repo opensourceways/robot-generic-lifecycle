@@ -16,7 +16,6 @@ package main
 import (
 	"errors"
 	"github.com/opensourceways/server-common-lib/config"
-	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 type botConfig struct {
@@ -24,10 +23,6 @@ type botConfig struct {
 	// true: issue can be closed only when its linking PR exists
 	// false: issue can be directly closed
 	NeedIssueHasLinkPullRequests bool `json:"need_issue_has_link_pull_requests,omitempty"`
-	// sig information url
-	SigInfoURL string `json:"sig_info_url" required:"true"`
-	// use as request parameter for get sig information
-	CommunityName string `json:"community_name" required:"true"`
 }
 
 func (c *botConfig) validate() error {
@@ -40,6 +35,16 @@ func (c *botConfig) validate() error {
 
 type configuration struct {
 	ConfigItems []botConfig `json:"config_items,omitempty"`
+	// sig information url
+	SigInfoURL string `json:"sig_info_url" required:"true"`
+	// use as request parameter for get sig information
+	CommunityName                         string `json:"community_name" required:"true"`
+	EventStateOpened                      string `json:"event_state_opened" required:"true"`
+	EventStateClosed                      string `json:"event_state_closed" required:"true"`
+	CommentNoPermissionOperateIssue       string `json:"comment_no_permission_operate_issue"  required:"true"`
+	CommentIssueNeedsLinkPR               string `json:"comment_issue_needs_link_pr"  required:"true"`
+	CommentListLinkingPullRequestsFailure string `json:"comment_list_linking_pull_requests_failure"  required:"true"`
+	CommentNoPermissionOperatePR          string `json:"comment_no_permission_operate_pr"  required:"true"`
 }
 
 func (c *configuration) Validate() error {
@@ -73,25 +78,10 @@ func (c *configuration) get(org, repo string) *botConfig {
 }
 
 func (c *configuration) NeedLinkPullRequests(org, repo string) bool {
-	if c == nil {
-		return false
+	cnf := c.get(org, repo)
+	if cnf != nil {
+		return cnf.NeedIssueHasLinkPullRequests
 	}
-	orgRepo := org + "/" + repo
-	items := c.ConfigItems
-	for _, item := range items {
-		repoFilter := item.RepoFilter
-		v := sets.NewString(repoFilter.Repos...)
-		needLinkPullRequests := item.NeedIssueHasLinkPullRequests
-		if v.Has(orgRepo) {
-			return needLinkPullRequests
-		}
-		if !v.Has(org) {
-			return false
-		}
-		if len(repoFilter.ExcludedRepos) > 0 && sets.NewString(repoFilter.ExcludedRepos...).Has(orgRepo) {
-			return false
-		}
-		return needLinkPullRequests
-	}
+
 	return false
 }
