@@ -24,8 +24,9 @@ const component = "robot-universal-lifecycle"
 func main() {
 
 	opt := new(robotOptions)
+	// Gather the necessary arguments from command line for project startup
 	cnf, token := opt.gatherOptions(flag.NewFlagSet(os.Args[0], flag.ExitOnError), os.Args[1:]...)
-	if opt.shutdown {
+	if opt.interrupt {
 		return
 	}
 

@@ -24,12 +24,19 @@ import (
 	"strings"
 )
 
+// iClient is an interface that defines methods for client-side interactions
 type iClient interface {
+	// CreatePRComment creates a comment for a pull request in a specified organization and repository
 	CreatePRComment(org, repo, number, comment string) (success bool)
+	// CreateIssueComment creates a comment for an issue in a specified organization and repository
 	CreateIssueComment(org, repo, number, comment string) (success bool)
+	// CheckPermission checks the permission of a user for a specified repository
 	CheckPermission(org, repo, username string) (pass, success bool)
+	// UpdateIssue updates the state of an issue in a specified organization and repository
 	UpdateIssue(org, repo, number, state string) (success bool)
+	// UpdatePR updates the state of a pull request in a specified organization and repository
 	UpdatePR(org, repo, number, state string) (success bool)
+	// GetIssueLinkedPRNumber retrieves the number of a pull request linked to a specified issue
 	GetIssueLinkedPRNumber(org, repo, number string) (num int, success bool)
 }
 
@@ -57,54 +64,73 @@ func (bot *robot) GetLogger() *logrus.Entry {
 	return bot.log
 }
 
-func (bot *robot) getConfig(cnf config.Configmap, org, repo string) (*botConfig, error) {
+// getConfig first checks if the specified organization and repository is available in the provided repoConfig list.
+// Returns an error if not found the available repoConfig.
+func (bot *robot) getConfig(cnf config.Configmap, org, repo string) (*repoConfig, error) {
 	c := cnf.(*configuration)
 	if bc := c.get(org, repo); bc != nil {
 		return bc, nil
 	}
 
-	return nil, errors.New("no config for this repo: " + org + "," + repo)
+	return nil, errors.New("no config for this repo: " + org + "/" + repo)
 }
 
 var (
-	eventStateOpened                      = "opened"
-	eventStateClosed                      = "closed"
-	commentNoPermissionOperateIssue       = ""
-	commentIssueNeedsLinkPR               = ""
+	// the value from configuration.EventStateOpened
+	eventStateOpened = "opened"
+	// the value from configuration.EventStateClosed
+	eventStateClosed = "closed"
+	// the value from configuration.CommentNoPermissionOperateIssue
+	commentNoPermissionOperateIssue = ""
+	// the value from configuration.CommentIssueNeedsLinkPR
+	commentIssueNeedsLinkPR = ""
+	// the value from configuration.CommentListLinkingPullRequestsFailure
 	commentListLinkingPullRequestsFailure = ""
-	commentNoPermissionOperatePR          = ""
+	// the value from configuration.CommentNoPermissionOperatePR
+	commentNoPermissionOperatePR = ""
 )
 
 const (
+	// placeholderCommenter is a placeholder string for the commenter's name
 	placeholderCommenter = "__commenter__"
-	placeholderAction    = "__action__"
+	// placeholderAction is a placeholder string for the action
+	placeholderAction = "__action__"
 )
 
 var (
+	// regexpReopenComment is a compiled regular expression for reopening comments
 	regexpReopenComment = regexp.MustCompile(`(?mi)^/reopen\s*$`)
-	regexpCloseComment  = regexp.MustCompile(`(?mi)^/close\s*$`)
+	// regexpCloseComment is a compiled regular expression for closing comments
+	regexpCloseComment = regexp.MustCompile(`(?mi)^/close\s*$`)
 )
 
 func (bot *robot) handleCommentEvent(evt *client.GenericEvent, cnf config.Configmap) {
 	org, repo, number := utils.GetString(evt.Org), utils.GetString(evt.Repo), utils.GetString(evt.Number)
 	configmap, err := bot.getConfig(cnf, org, repo)
+	// If the specified repository not match any repository  in the repoConfig list, it logs the error and returns
 	if err != nil {
 		bot.log.WithError(err).Error()
 		return
 	}
 
+	// Checks if the event can be handled as a reopen event
 	if bot.handleReopenEvent(evt, org, repo, number) {
 		return
 	}
 
+	// Handles the close event
 	bot.handleCloseEvent(evt, configmap, org, repo, number)
 }
 
+// handleReopenEvent only handles the reopening of an issue event.
+// Handle completed, set the interrupt flag to interrupt the subsequent operations.
 func (bot *robot) handleReopenEvent(evt *client.GenericEvent, org, repo, number string) (interrupt bool) {
 	comment, state := utils.GetString(evt.Comment), utils.GetString(evt.State)
 	commenter, author := utils.GetString(evt.Commenter), utils.GetString(evt.Author)
+	// If the comment is on an issue and the comment matches the reopen comment and the state is closed
 	if utils.GetString(evt.CommentKind) == client.CommentOnIssue && regexpReopenComment.MatchString(comment) && state == eventStateClosed {
 		interrupt = true
+		// Check if the commenter has the permission to operate
 		if !bot.checkCommenterPermission(org, repo, author, commenter, func() {
 			bot.cli.CreateIssueComment(org, repo, number,
 				strings.ReplaceAll(strings.ReplaceAll(commentNoPermissionOperateIssue, placeholderCommenter, commenter), placeholderAction, "reopen"))
@@ -117,10 +143,13 @@ func (bot *robot) handleReopenEvent(evt *client.GenericEvent, org, repo, number 
 	return
 }
 
-func (bot *robot) handleCloseEvent(evt *client.GenericEvent, configmap *botConfig, org, repo, number string) {
+// handleCloseEvent  handles the closing of an issue or pull request event
+func (bot *robot) handleCloseEvent(evt *client.GenericEvent, configmap *repoConfig, org, repo, number string) {
 	comment, state := utils.GetString(evt.Comment), utils.GetString(evt.State)
 	commenter, author := utils.GetString(evt.Commenter), utils.GetString(evt.Author)
+	// If the comment matches the close comment and the state is opened
 	if regexpCloseComment.MatchString(comment) && state == eventStateOpened {
+		// Check if the commenter has the permission to operate
 		if !bot.checkCommenterPermission(org, repo, author, commenter, func() {
 			if utils.GetString(evt.CommentKind) == client.CommentOnIssue {
 				bot.cli.CreateIssueComment(org, repo, number,
@@ -133,25 +162,30 @@ func (bot *robot) handleCloseEvent(evt *client.GenericEvent, configmap *botConfi
 			return
 		}
 
+		// If the comment kind is an pull request, update the pull request state to closed and return
 		if utils.GetString(evt.CommentKind) != client.CommentOnIssue {
 			bot.cli.UpdatePR(org, repo, number, eventStateClosed)
 			return
 		}
 
+		// Check if the issue needs linking to a pull request, and update the issue state to closed
 		bot.checkIssueNeedLinkingPR(configmap, org, repo, number, commenter)
 	}
 }
 
-func (bot *robot) checkIssueNeedLinkingPR(configmap *botConfig, org, repo, number, commenter string) {
+// handleCloseEvent  handles the closing of an issue
+func (bot *robot) checkIssueNeedLinkingPR(configmap *repoConfig, org, repo, number, commenter string) {
 	if configmap.NeedIssueHasLinkPullRequests {
 		// issue can be closed only when its linking PR exists
 		num, success := bot.cli.GetIssueLinkedPRNumber(org, repo, number)
 		bot.log.Infof("list the issue[%s/%s,%s] linking PR number is successful: %v, number: %d", org, repo, number, success, num)
+		// If the request is failed that means not be sure to close issue, create a comment indicating do closing again and return
 		if !success {
 			bot.cli.CreateIssueComment(org, repo, number, strings.ReplaceAll(commentListLinkingPullRequestsFailure, placeholderCommenter, commenter))
 			return
 		}
 
+		// If the linked pull request number is zero, create a comment indicating that the issue needs a linked pull request and return
 		if num == 0 {
 			bot.cli.CreateIssueComment(org, repo, number, strings.ReplaceAll(commentIssueNeedsLinkPR, placeholderCommenter, commenter))
 			return

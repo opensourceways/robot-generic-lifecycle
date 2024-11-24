@@ -18,14 +18,19 @@ import (
 	"github.com/opensourceways/server-common-lib/config"
 )
 
-type botConfig struct {
+// repoConfig is a configuration struct for a organization and repository.
+// It includes a RepoFilter and a boolean value indicating if an issue can be closed only when its linking PR exists.
+type repoConfig struct {
+	// RepoFilter is used to filter repositories.
 	config.RepoFilter
 	// true: issue can be closed only when its linking PR exists
 	// false: issue can be directly closed
 	NeedIssueHasLinkPullRequests bool `json:"need_issue_has_link_pull_requests,omitempty"`
 }
 
-func (c *botConfig) validate() error {
+// validate to check the repoConfig data's validation, returns an error if invalid
+func (c *repoConfig) validate() error {
+	// If the bot is not configured to monitor any repositories, return an error.
 	if len(c.Repos) == 0 {
 		return errors.New("the repositories configuration can not be empty")
 	}
@@ -33,25 +38,35 @@ func (c *botConfig) validate() error {
 	return c.RepoFilter.Validate()
 }
 
+// configuration holds a list of repoConfig configurations.
+// It also  includes sig information url, community name, event states, comment templates.
 type configuration struct {
-	ConfigItems []botConfig `json:"config_items,omitempty"`
-	// sig information url
+	ConfigItems []repoConfig `json:"config_items,omitempty"`
+	// Sig information url.
 	SigInfoURL string `json:"sig_info_url" required:"true"`
-	// use as request parameter for get sig information
-	CommunityName                         string `json:"community_name" required:"true"`
-	EventStateOpened                      string `json:"event_state_opened" required:"true"`
-	EventStateClosed                      string `json:"event_state_closed" required:"true"`
-	CommentNoPermissionOperateIssue       string `json:"comment_no_permission_operate_issue"  required:"true"`
-	CommentIssueNeedsLinkPR               string `json:"comment_issue_needs_link_pr"  required:"true"`
+	// Community name used as a request parameter to get sig information.
+	CommunityName string `json:"community_name" required:"true"`
+	// Event state for opened issues.
+	EventStateOpened string `json:"event_state_opened" required:"true"`
+	// Event state for closed issues.
+	EventStateClosed string `json:"event_state_closed" required:"true"`
+	// Comment template for when no permission to operate on an issue.
+	CommentNoPermissionOperateIssue string `json:"comment_no_permission_operate_issue"  required:"true"`
+	// Comment template indicating that an issue needs a linking PR.
+	CommentIssueNeedsLinkPR string `json:"comment_issue_needs_link_pr"  required:"true"`
+	// Comment template for listing linking pull requests that failed.
 	CommentListLinkingPullRequestsFailure string `json:"comment_list_linking_pull_requests_failure"  required:"true"`
-	CommentNoPermissionOperatePR          string `json:"comment_no_permission_operate_pr"  required:"true"`
+	// Comment template for when no permission to operate on a PR.
+	CommentNoPermissionOperatePR string `json:"comment_no_permission_operate_pr"  required:"true"`
 }
 
+// Validate to check the configmap data's validation, returns an error if invalid
 func (c *configuration) Validate() error {
 	if c == nil {
-		return nil
+		return errors.New("configuration is nil")
 	}
 
+	// Validate each repo configuration
 	items := c.ConfigItems
 	for i := range items {
 		if err := items[i].validate(); err != nil {
@@ -62,7 +77,9 @@ func (c *configuration) Validate() error {
 	return nil
 }
 
-func (c *configuration) get(org, repo string) *botConfig {
+// get retrieves a repoConfig for a given organization and repository.
+// Returns the repoConfig if found, otherwise returns nil.
+func (c *configuration) get(org, repo string) *repoConfig {
 	if c == nil || len(c.ConfigItems) == 0 {
 		return nil
 	}
@@ -77,6 +94,8 @@ func (c *configuration) get(org, repo string) *botConfig {
 	return nil
 }
 
+// NeedLinkPullRequests checks if the link to the pull request is needed for a given organization and repository.
+// Returns true if the link to the pull request is needed, false otherwise.
 func (c *configuration) NeedLinkPullRequests(org, repo string) bool {
 	cnf := c.get(org, repo)
 	if cnf != nil {

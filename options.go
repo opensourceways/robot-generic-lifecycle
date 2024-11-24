@@ -25,7 +25,7 @@ import (
 type robotOptions struct {
 	service   config.FrameworkOptions
 	delToken  bool
-	shutdown  bool
+	interrupt bool
 	tokenPath string
 }
 
@@ -36,25 +36,27 @@ func (o *robotOptions) loadToken(fs *flag.FlagSet) func() []byte {
 	)
 	fs.BoolVar(
 		&o.delToken, "del-token", true,
-		"whether to delete token secret file.",
+		"An flag to delete token secret file.",
 	)
 
 	return func() []byte {
 		token, err := secret.LoadSingleSecret(o.tokenPath)
 		if err != nil {
-			logrus.Errorf("load token, err:%s", err.Error())
-			o.shutdown = true
+			logrus.WithError(err).Fatal("fatal error occurred while loading token")
+			o.interrupt = true
 		}
 		if o.delToken {
 			if err = os.Remove(o.tokenPath); err != nil {
-				logrus.Errorf("remove token, err:%s", err.Error())
-				o.shutdown = true
+				logrus.WithError(err).Fatal("fatal error occurred while deleting token")
+				o.interrupt = true
 			}
 		}
 		return token
 	}
 }
 
+// gatherOptions gather the necessary arguments from command line for project startup.
+// It returns the configuration and the token to using for subsequent processes.
 func (o *robotOptions) gatherOptions(fs *flag.FlagSet, args ...string) (*configuration, []byte) {
 
 	o.service.AddFlagsComposite(fs)
@@ -64,7 +66,7 @@ func (o *robotOptions) gatherOptions(fs *flag.FlagSet, args ...string) (*configu
 
 	if err := o.service.ValidateComposite(); err != nil {
 		logrus.Errorf("invalid service options, err:%s", err.Error())
-		o.shutdown = true
+		o.interrupt = true
 		return nil, nil
 	}
 	configmap, err := config.NewConfigmapAgent(&configuration{}, o.service.ConfigFile)

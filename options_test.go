@@ -31,7 +31,7 @@ func TestGatherOptions(t *testing.T) {
 
 	opt := new(robotOptions)
 	_, _ = opt.gatherOptions(flag.NewFlagSet(args[0], flag.ExitOnError), args[1:]...)
-	assert.Equal(t, true, opt.shutdown)
+	assert.Equal(t, true, opt.interrupt)
 	assert.Equal(t, "webhook", opt.service.HandlePath)
 	assert.Equal(t, 8511, opt.service.Port)
 
@@ -44,7 +44,7 @@ func TestGatherOptions(t *testing.T) {
 
 	opt = new(robotOptions)
 	_, _ = opt.gatherOptions(flag.NewFlagSet(args[0], flag.ExitOnError), args[1:]...)
-	assert.Equal(t, true, opt.shutdown)
+	assert.Equal(t, true, opt.interrupt)
 
 	args = []string{
 		"***",
@@ -56,7 +56,7 @@ func TestGatherOptions(t *testing.T) {
 	}
 
 	_, _ = opt.gatherOptions(flag.NewFlagSet(args[0], flag.ExitOnError), args[1:]...)
-	assert.Equal(t, true, opt.shutdown)
+	assert.Equal(t, true, opt.interrupt)
 
 	args = []string{
 		"***",
@@ -68,13 +68,13 @@ func TestGatherOptions(t *testing.T) {
 	}
 
 	_, _ = opt.gatherOptions(flag.NewFlagSet(args[0], flag.ExitOnError), args[1:]...)
-	assert.Equal(t, true, opt.shutdown)
+	assert.Equal(t, true, opt.interrupt)
 
 	args[4] = "--token-path=" + findTestdata(t, "testdata"+string(os.PathSeparator)+"token")
 
 	opt = new(robotOptions)
 	got, token := opt.gatherOptions(flag.NewFlagSet(args[0], flag.ExitOnError), args[1:]...)
-	assert.Equal(t, false, opt.shutdown)
+	assert.Equal(t, false, opt.interrupt)
 	assert.Equal(t, "gitcode-hook", opt.service.HandlePath)
 	want := &configuration{}
 	_ = utils.LoadFromYaml(findTestdata(t, "testdata"+string(os.PathSeparator)+"config.yaml"), want)

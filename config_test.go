@@ -14,10 +14,113 @@
 package main
 
 import (
+	"github.com/opensourceways/server-common-lib/config"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestRepoConfigValidate(t *testing.T) {
+	// 测试空的Repos字段
+	rc := &repoConfig{}
+	err := rc.validate()
+	if err == nil {
+		t.Error("Expected an error for empty Repos field, but got nil")
+	}
+
+	// 测试非空的Repos字段
+	rc.Repos = []string{"repo1", "repo2"}
+	err = rc.validate()
+	if err != nil {
+		t.Errorf("Expected no error for non-empty Repos field, but got %v", err)
+	}
+}
+
+func TestConfigurationValidate(t *testing.T) {
+	// 测试空的配置
+	c := &configuration{}
+	err := c.Validate()
+	if err == nil {
+		t.Error("Expected an error for nil configuration, but got nil")
+	}
+
+	// 测试非空的配置
+	c.ConfigItems = []repoConfig{
+		{
+			RepoFilter: config.RepoFilter{
+				Repos: []string{"repo1", "repo2"},
+			},
+		},
+	}
+	err = c.Validate()
+	if err != nil {
+		t.Errorf("Expected no error for non-nil configuration, but got %v", err)
+	}
+}
+
+func TestConfigurationGet(t *testing.T) {
+	// 测试空的配置
+	c := &configuration{}
+	rc := c.get("org1", "repo1")
+	if rc != nil {
+		t.Error("Expected nil repoConfig for empty configuration, but got non-nil")
+	}
+
+	// 测试非空的配置，但不匹配的组织和仓库
+	c.ConfigItems = []repoConfig{
+		{
+			RepoFilter: config.RepoFilter{
+				Repos: []string{"repo1", "repo2"},
+			},
+		},
+	}
+	rc = c.get("org2", "repo3")
+	if rc != nil {
+		t.Error("Expected nil repoConfig for non-matching organization and repository, but got non-nil")
+	}
+
+	// 测试非空的配置，匹配的组织和仓库
+	rc = c.get("org1", "repo1")
+	if rc == nil {
+		t.Error("Expected non-nil repoConfig for matching organization and repository, but got nil")
+	}
+}
+
+func TestConfigurationNeedLinkPullRequests(t *testing.T) {
+	// 测试空的配置
+	c := &configuration{}
+	needLink := c.NeedLinkPullRequests("org1", "repo1")
+	if needLink {
+		t.Error("Expected false for needing link to pull request for empty configuration, but got true")
+	}
+
+	// 测试非空的配置，但不匹配的组织和仓库
+	c.ConfigItems = []repoConfig{
+		{
+			RepoFilter: config.RepoFilter{
+				Repos: []string{"repo1", "repo2"},
+			},
+		},
+	}
+	needLink = c.NeedLinkPullRequests("org2", "repo3")
+	if needLink {
+		t.Error("Expected false for needing link to pull request for non-matching organization and repository, but got true")
+	}
+
+	// 测试非空的配置，匹配的组织和仓库，但NeedIssueHasLinkPullRequests为false
+	c.ConfigItems[0].NeedIssueHasLinkPullRequests = false
+	needLink = c.NeedLinkPullRequests("org1", "repo1")
+	if needLink {
+		t.Error("Expected false for needing link to pull request when NeedIssueHasLinkPullRequests is false, but got true")
+	}
+
+	// 测试非空的配置，匹配的组织和仓库，NeedIssueHasLinkPullRequests为true
+	c.ConfigItems[0].NeedIssueHasLinkPullRequests = true
+	needLink = c.NeedLinkPullRequests("org1", "repo1")
+	if !needLink {
+		t.Error("Expected true for needing link to pull request when NeedIssueHasLinkPullRequests is true, but got false")
+	}
+}
 
 //
 //func TestValidate(t *testing.T) {
