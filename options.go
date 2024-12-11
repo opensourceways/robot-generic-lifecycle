@@ -29,7 +29,8 @@ type robotOptions struct {
 	tokenPath string
 }
 
-func (o *robotOptions) loadToken(fs *flag.FlagSet) func() []byte {
+func (o *robotOptions) addFlags(fs *flag.FlagSet) {
+	o.service.AddFlagsComposite(fs)
 	fs.StringVar(
 		&o.tokenPath, "token-path", "",
 		"Path to the file containing the token secret.",
@@ -38,50 +39,46 @@ func (o *robotOptions) loadToken(fs *flag.FlagSet) func() []byte {
 		&o.delToken, "del-token", true,
 		"An flag to delete token secret file.",
 	)
+}
 
-	return func() []byte {
-		token, err := secret.LoadSingleSecret(o.tokenPath)
-		if err != nil {
-			logrus.WithError(err).Fatal("fatal error occurred while loading token")
+func (o *robotOptions) validateFlags() (*configuration, []byte) {
+	if err := o.service.ValidateComposite(); err != nil {
+		logrus.WithError(err).Errorf("invalid service options")
+		o.interrupt = true
+		return nil, nil
+	}
+
+	configmap, err := config.NewConfigmapAgent(&configuration{}, o.service.ConfigFile)
+	if err != nil {
+		logrus.WithError(err).Error("fatal error occurred while loading and parsing configmap")
+		o.interrupt = true
+		return nil, nil
+	}
+
+	token, err := secret.LoadSingleSecret(o.tokenPath)
+	if err != nil {
+		logrus.WithError(err).Error("fatal error occurred while loading token")
+		o.interrupt = true
+	}
+	if o.delToken {
+		if err = os.Remove(o.tokenPath); err != nil {
+			logrus.WithError(err).Error("fatal error occurred while deleting token")
 			o.interrupt = true
 		}
-		if o.delToken {
-			if err = os.Remove(o.tokenPath); err != nil {
-				logrus.WithError(err).Fatal("fatal error occurred while deleting token")
-				o.interrupt = true
-			}
-		}
-		return token
 	}
+
+	return configmap.GetConfigmap().(*configuration), token
 }
 
 // gatherOptions gather the necessary arguments from command line for project startup.
 // It returns the configuration and the token to using for subsequent processes.
 func (o *robotOptions) gatherOptions(fs *flag.FlagSet, args ...string) (*configuration, []byte) {
-
-	o.service.AddFlagsComposite(fs)
-	tokenFunc := o.loadToken(fs)
-
+	o.addFlags(fs)
 	_ = fs.Parse(args)
-
-	if err := o.service.ValidateComposite(); err != nil {
-		logrus.Errorf("invalid service options, err:%s", err.Error())
-		o.interrupt = true
-		return nil, nil
+	cnf, token := o.validateFlags()
+	if cnf != nil {
+		client.SetSigInfoBaseURL(cnf.SigInfoURL)
+		client.SetCommunityName(cnf.CommunityName)
 	}
-	configmap, err := config.NewConfigmapAgent(&configuration{}, o.service.ConfigFile)
-	if err != nil {
-		logrus.Errorf("load config, err:%s", err.Error())
-		return nil, nil
-	}
-
-	cnf := configmap.GetConfigmap().(*configuration)
-	client.SetSigInfoBaseURL(cnf.SigInfoURL)
-	client.SetCommunityName(cnf.CommunityName)
-	commentNoPermissionOperateIssue = cnf.CommentNoPermissionOperateIssue
-	commentIssueNeedsLinkPR = cnf.CommentIssueNeedsLinkPR
-	commentListLinkingPullRequestsFailure = cnf.CommentListLinkingPullRequestsFailure
-	commentNoPermissionOperatePR = cnf.CommentNoPermissionOperatePR
-
-	return cnf, tokenFunc()
+	return cnf, token
 }

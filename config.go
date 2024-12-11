@@ -16,6 +16,8 @@ package main
 import (
 	"errors"
 	"github.com/opensourceways/server-common-lib/config"
+	"reflect"
+	"strings"
 )
 
 // repoConfig is a configuration struct for a organization and repository.
@@ -44,7 +46,7 @@ type configuration struct {
 	ConfigItems []repoConfig `json:"config_items,omitempty"`
 	// Sig information url.
 	SigInfoURL string `json:"sig_info_url" required:"true"`
-	// Community name used as a request parameter to get sig information.
+	// Community name used as a request parameter to getRepoConfig sig information.
 	CommunityName string `json:"community_name" required:"true"`
 	// Event state for opened issues.
 	EventStateOpened string `json:"event_state_opened" required:"true"`
@@ -74,12 +76,35 @@ func (c *configuration) Validate() error {
 		}
 	}
 
+	return c.validateGlobalConfig()
+}
+
+func (c *configuration) validateGlobalConfig() error {
+	k := reflect.TypeOf(*c)
+	v := reflect.ValueOf(*c)
+
+	var missing []string
+	n := k.NumField()
+	for i := 0; i < n; i++ {
+		tag := k.Field(i).Tag.Get("required")
+		if len(tag) > 0 {
+			s, _ := v.Field(i).Interface().(string)
+			if s == "" {
+				missing = append(missing, k.Field(i).Tag.Get("json"))
+			}
+		}
+	}
+
+	if len(missing) != 0 {
+		return errors.New("missing the follow config: " + strings.Join(missing, ", "))
+	}
+
 	return nil
 }
 
-// get retrieves a repoConfig for a given organization and repository.
+// getRepoConfig retrieves a repoConfig for a given organization and repository.
 // Returns the repoConfig if found, otherwise returns nil.
-func (c *configuration) get(org, repo string) *repoConfig {
+func (c *configuration) getRepoConfig(org, repo string) *repoConfig {
 	if c == nil || len(c.ConfigItems) == 0 {
 		return nil
 	}
@@ -97,7 +122,7 @@ func (c *configuration) get(org, repo string) *repoConfig {
 // NeedLinkPullRequests checks if the link to the pull request is needed for a given organization and repository.
 // Returns true if the link to the pull request is needed, false otherwise.
 func (c *configuration) NeedLinkPullRequests(org, repo string) bool {
-	cnf := c.get(org, repo)
+	cnf := c.getRepoConfig(org, repo)
 	if cnf != nil {
 		return cnf.NeedIssueHasLinkPullRequests
 	}

@@ -3,7 +3,7 @@ module robot-universal-lifecycle
 go 1.21
 
 require (
-	github.com/opensourceways/robot-framework-lib v0.1.14-alpha
+	github.com/opensourceways/robot-framework-lib v0.1.36-alpha
 	github.com/opensourceways/server-common-lib v1.0.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.9.0
@@ -12,7 +12,7 @@ require (
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/go-resty/resty/v2 v2.11.0 // indirect
-	github.com/opensourceways/go-gitcode v0.1.10-alpha // indirect
+	github.com/opensourceways/go-gitcode v0.1.23-alpha // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	golang.org/x/net v0.23.0 // indirect
 	golang.org/x/sys v0.18.0 // indirect

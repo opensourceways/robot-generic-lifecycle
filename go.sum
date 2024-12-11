@@ -5,10 +5,10 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/go-resty/resty/v2 v2.11.0 h1:i7jMfNOJYMp69lq7qozJP+bjgzfAzeOhuGlyDrqxT/8=
 github.com/go-resty/resty/v2 v2.11.0/go.mod h1:iiP/OpA0CkcL3IGt1O0+/SIItFUbkkyw5BGXiVdTu+A=
-github.com/opensourceways/go-gitcode v0.1.10-alpha h1:I/SYSe3A7lzBHLRLUDqUH8qgsPsSo8qT1bMAsU1oKOg=
-github.com/opensourceways/go-gitcode v0.1.10-alpha/go.mod h1:2BDl00PrpmMeVmD4NxO99DZiRcqx5jszNlGwPs1i9TQ=
-github.com/opensourceways/robot-framework-lib v0.1.14-alpha h1:tPKMQZbYibMQxnc7vUzsfn41Ey3KQwxwCfaCz99wLNU=
-github.com/opensourceways/robot-framework-lib v0.1.14-alpha/go.mod h1:W0w7WY3SJPk0Ld+42kO2l+A/AJFL3OqhicowqdCo3HM=
+github.com/opensourceways/go-gitcode v0.1.23-alpha h1:5BSPugdGJv3bO1mPdx+UaYD8t4jWizEYw7mCqKCIO30=
+github.com/opensourceways/go-gitcode v0.1.23-alpha/go.mod h1:2BDl00PrpmMeVmD4NxO99DZiRcqx5jszNlGwPs1i9TQ=
+github.com/opensourceways/robot-framework-lib v0.1.36-alpha h1:QhW2DU2nhbDCIGWvvPQnNmZJtI86pd0Ygi/eCR4qgqI=
+github.com/opensourceways/robot-framework-lib v0.1.36-alpha/go.mod h1:lvgwf/QCyEPLM5uT0lvHR0QuWWJ1i28mffe5Z1Og4+8=
 github.com/opensourceways/server-common-lib v1.0.0 h1:uZikXrFsibI3fmSqVVWPYLBFNOM9IO8Hsux5b5neJLI=
 github.com/opensourceways/server-common-lib v1.0.0/go.mod h1:AVDRCS30/uJXO7WONPa1U+AQePXr488+7qZFC7EjJzE=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

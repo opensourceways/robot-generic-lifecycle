@@ -61,7 +61,7 @@ func TestConfigurationValidate(t *testing.T) {
 func TestConfigurationGet(t *testing.T) {
 	// 测试空的配置
 	c := &configuration{}
-	rc := c.get("org1", "repo1")
+	rc := c.getRepoConfig("org1", "repo1")
 	if rc != nil {
 		t.Error("Expected nil repoConfig for empty configuration, but got non-nil")
 	}
@@ -74,13 +74,13 @@ func TestConfigurationGet(t *testing.T) {
 			},
 		},
 	}
-	rc = c.get("org2", "repo3")
+	rc = c.getRepoConfig("org2", "repo3")
 	if rc != nil {
 		t.Error("Expected nil repoConfig for non-matching organization and repository, but got non-nil")
 	}
 
 	// 测试非空的配置，匹配的组织和仓库
-	rc = c.get("org1", "repo1")
+	rc = c.getRepoConfig("org1", "repo1")
 	if rc == nil {
 		t.Error("Expected non-nil repoConfig for matching organization and repository, but got nil")
 	}
@@ -231,27 +231,27 @@ func TestConfigurationNeedLinkPullRequests(t *testing.T) {
 //func TestGetConfig(t *testing.T) {
 //	cnf := &configuration{}
 //
-//	got := cnf.get("owner1", "")
+//	got := cnf.getRepoConfig("owner1", "")
 //	assert.Equal(t, (*botConfig)(nil), got)
 //	_ = utils.LoadFromYaml(findTestdata(t, "testdata"+string(os.PathSeparator)+"config.yaml"), cnf)
 //
-//	got = cnf.get("owner1", "")
+//	got = cnf.getRepoConfig("owner1", "")
 //	assert.Equal(t, "openUBMC1", got.CommunityName)
 //	assert.Equal(t, "fafsadaf", got.CommandLink)
 //
-//	got = cnf.get("owner2", "repo1")
+//	got = cnf.getRepoConfig("owner2", "repo1")
 //	assert.Equal(t, "openUBMC1", got.CommunityName)
 //	assert.Equal(t, "fafsadaf", got.CommandLink)
 //
-//	got = cnf.get("owner3", "repo1")
+//	got = cnf.getRepoConfig("owner3", "repo1")
 //	assert.Equal(t, "openUBMC2", got.CommunityName)
 //	assert.Equal(t, "fafsadaf13", got.CommandLink)
 //
-//	got = cnf.get("owner4", "repo2")
+//	got = cnf.getRepoConfig("owner4", "repo2")
 //	assert.Equal(t, "openUBMC2", got.CommunityName)
 //	assert.Equal(t, "fafsadaf13", got.CommandLink)
 //
-//	got = cnf.get("owner5", "repo2")
+//	got = cnf.getRepoConfig("owner5", "repo2")
 //	assert.Equal(t, (*botConfig)(nil), got)
 //}
 

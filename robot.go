@@ -51,8 +51,8 @@ func newRobot(c *configuration, token []byte) *robot {
 	return &robot{cli: client.NewClient(token, logger), cnf: c, log: logger}
 }
 
-func (bot *robot) NewConfig() config.Configmap {
-	return &configuration{}
+func (bot *robot) GetConfigmap() config.Configmap {
+	return bot.cnf
 }
 
 func (bot *robot) RegisterEventHandler(p framework.HandlerRegister) {
@@ -68,27 +68,12 @@ func (bot *robot) GetLogger() *logrus.Entry {
 // Returns an error if not found the available repoConfig.
 func (bot *robot) getConfig(cnf config.Configmap, org, repo string) (*repoConfig, error) {
 	c := cnf.(*configuration)
-	if bc := c.get(org, repo); bc != nil {
+	if bc := c.getRepoConfig(org, repo); bc != nil {
 		return bc, nil
 	}
 
 	return nil, errors.New("no config for this repo: " + org + "/" + repo)
 }
-
-var (
-	// the value from configuration.EventStateOpened
-	eventStateOpened = "opened"
-	// the value from configuration.EventStateClosed
-	eventStateClosed = "closed"
-	// the value from configuration.CommentNoPermissionOperateIssue
-	commentNoPermissionOperateIssue = ""
-	// the value from configuration.CommentIssueNeedsLinkPR
-	commentIssueNeedsLinkPR = ""
-	// the value from configuration.CommentListLinkingPullRequestsFailure
-	commentListLinkingPullRequestsFailure = ""
-	// the value from configuration.CommentNoPermissionOperatePR
-	commentNoPermissionOperatePR = ""
-)
 
 const (
 	// placeholderCommenter is a placeholder string for the commenter's name
@@ -99,64 +84,66 @@ const (
 
 var (
 	// regexpReopenComment is a compiled regular expression for reopening comments
-	regexpReopenComment = regexp.MustCompile(`(?mi)^/reopen\s*$`)
+	regexpReopenComment = regexp.MustCompile(`^/reopen$`)
 	// regexpCloseComment is a compiled regular expression for closing comments
-	regexpCloseComment = regexp.MustCompile(`(?mi)^/close\s*$`)
+	regexpCloseComment = regexp.MustCompile(`^/close$`)
 )
 
-func (bot *robot) handleCommentEvent(evt *client.GenericEvent, cnf config.Configmap) {
+func (bot *robot) handleCommentEvent(evt *client.GenericEvent, cnf config.Configmap, logger *logrus.Entry) {
 	org, repo, number := utils.GetString(evt.Org), utils.GetString(evt.Repo), utils.GetString(evt.Number)
-	configmap, err := bot.getConfig(cnf, org, repo)
-	// If the specified repository not match any repository  in the repoConfig list, it logs the error and returns
-	if err != nil {
-		bot.log.WithError(err).Error()
+	repoCnf := bot.cnf.getRepoConfig(org, repo)
+	// If the specified repository not match any repository  in the repoConfig list, it logs the warning and returns
+	if repoCnf == nil {
+		logger.Warningf("no config for the repo: " + org + "/" + repo)
 		return
 	}
 
 	// Checks if the event can be handled as a reopen event
-	if bot.handleReopenEvent(evt, org, repo, number) {
+	if bot.handleReopenEvent(evt, org, repo, number, logger) {
 		return
 	}
 
 	// Handles the close event
-	bot.handleCloseEvent(evt, configmap, org, repo, number)
+	bot.handleCloseEvent(evt, repoCnf, org, repo, number, logger)
 }
 
 // handleReopenEvent only handles the reopening of an issue event.
 // Handle completed, set the interrupt flag to interrupt the subsequent operations.
-func (bot *robot) handleReopenEvent(evt *client.GenericEvent, org, repo, number string) (interrupt bool) {
+func (bot *robot) handleReopenEvent(evt *client.GenericEvent, org, repo, number string, logger *logrus.Entry) (interrupt bool) {
 	comment, state := utils.GetString(evt.Comment), utils.GetString(evt.State)
 	commenter, author := utils.GetString(evt.Commenter), utils.GetString(evt.Author)
 	// If the comment is on an issue and the comment matches the reopen comment and the state is closed
-	if utils.GetString(evt.CommentKind) == client.CommentOnIssue && regexpReopenComment.MatchString(comment) && state == eventStateClosed {
+	if utils.GetString(evt.CommentKind) == client.CommentOnIssue &&
+		regexpReopenComment.MatchString(strings.TrimSpace(comment)) && state == bot.cnf.EventStateClosed {
 		interrupt = true
 		// Check if the commenter has the permission to operate
-		if !bot.checkCommenterPermission(org, repo, author, commenter, func() {
+		if !bot.checkCommenterPermission(org, repo, author, commenter, logger, func() {
 			bot.cli.CreateIssueComment(org, repo, number,
-				strings.ReplaceAll(strings.ReplaceAll(commentNoPermissionOperateIssue, placeholderCommenter, commenter), placeholderAction, "reopen"))
+				strings.ReplaceAll(strings.ReplaceAll(bot.cnf.CommentNoPermissionOperateIssue, placeholderCommenter, commenter),
+					placeholderAction, "reopen"))
 		}) {
 			return
 		}
 
-		bot.cli.UpdateIssue(org, repo, number, eventStateOpened)
+		bot.cli.UpdateIssue(org, repo, number, bot.cnf.EventStateOpened)
 	}
 	return
 }
 
 // handleCloseEvent  handles the closing of an issue or pull request event
-func (bot *robot) handleCloseEvent(evt *client.GenericEvent, configmap *repoConfig, org, repo, number string) {
+func (bot *robot) handleCloseEvent(evt *client.GenericEvent, configmap *repoConfig, org, repo, number string, logger *logrus.Entry) {
 	comment, state := utils.GetString(evt.Comment), utils.GetString(evt.State)
 	commenter, author := utils.GetString(evt.Commenter), utils.GetString(evt.Author)
 	// If the comment matches the close comment and the state is opened
-	if regexpCloseComment.MatchString(comment) && state == eventStateOpened {
+	if regexpCloseComment.MatchString(strings.TrimSpace(comment)) && state == bot.cnf.EventStateOpened {
 		// Check if the commenter has the permission to operate
-		if !bot.checkCommenterPermission(org, repo, author, commenter, func() {
+		if !bot.checkCommenterPermission(org, repo, author, commenter, logger, func() {
 			if utils.GetString(evt.CommentKind) == client.CommentOnIssue {
 				bot.cli.CreateIssueComment(org, repo, number,
-					strings.ReplaceAll(strings.ReplaceAll(commentNoPermissionOperateIssue, placeholderCommenter, commenter), placeholderAction, "close"))
+					strings.ReplaceAll(strings.ReplaceAll(bot.cnf.CommentNoPermissionOperateIssue, placeholderCommenter, commenter), placeholderAction, "close"))
 			} else {
 				bot.cli.CreatePRComment(org, repo, number,
-					strings.ReplaceAll(strings.ReplaceAll(commentNoPermissionOperatePR, placeholderCommenter, commenter), placeholderAction, "close"))
+					strings.ReplaceAll(strings.ReplaceAll(bot.cnf.CommentNoPermissionOperatePR, placeholderCommenter, commenter), placeholderAction, "close"))
 			}
 		}) {
 			return
@@ -164,7 +151,7 @@ func (bot *robot) handleCloseEvent(evt *client.GenericEvent, configmap *repoConf
 
 		// If the comment kind is an pull request, update the pull request state to closed and return
 		if utils.GetString(evt.CommentKind) != client.CommentOnIssue {
-			bot.cli.UpdatePR(org, repo, number, eventStateClosed)
+			bot.cli.UpdatePR(org, repo, number, bot.cnf.EventStateClosed)
 			return
 		}
 
@@ -181,26 +168,26 @@ func (bot *robot) checkIssueNeedLinkingPR(configmap *repoConfig, org, repo, numb
 		bot.log.Infof("list the issue[%s/%s,%s] linking PR number is successful: %v, number: %d", org, repo, number, success, num)
 		// If the request is failed that means not be sure to close issue, create a comment indicating do closing again and return
 		if !success {
-			bot.cli.CreateIssueComment(org, repo, number, strings.ReplaceAll(commentListLinkingPullRequestsFailure, placeholderCommenter, commenter))
+			bot.cli.CreateIssueComment(org, repo, number, strings.ReplaceAll(bot.cnf.CommentListLinkingPullRequestsFailure, placeholderCommenter, commenter))
 			return
 		}
 
 		// If the linked pull request number is zero, create a comment indicating that the issue needs a linked pull request and return
 		if num == 0 {
-			bot.cli.CreateIssueComment(org, repo, number, strings.ReplaceAll(commentIssueNeedsLinkPR, placeholderCommenter, commenter))
+			bot.cli.CreateIssueComment(org, repo, number, strings.ReplaceAll(bot.cnf.CommentIssueNeedsLinkPR, placeholderCommenter, commenter))
 			return
 		}
 	}
 
-	bot.cli.UpdateIssue(org, repo, number, eventStateClosed)
+	bot.cli.UpdateIssue(org, repo, number, bot.cnf.EventStateClosed)
 }
 
-func (bot *robot) checkCommenterPermission(org, repo, author, commenter string, fn func()) (pass bool) {
+func (bot *robot) checkCommenterPermission(org, repo, author, commenter string, logger *logrus.Entry, fn func()) (pass bool) {
 	if author == commenter {
 		return true
 	}
 	pass, success := bot.cli.CheckPermission(org, repo, commenter)
-	bot.log.Infof("request success: %t, the %s has permission to the repo[%s/%s]: %t", success, commenter, org, repo, pass)
+	logger.Infof("request success: %t, the %s has permission to the repo[%s/%s]: %t", success, commenter, org, repo, pass)
 
 	if success && !pass {
 		fn()
