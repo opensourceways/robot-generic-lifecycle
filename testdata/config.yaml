@@ -1,7 +1,13 @@
 config_items:
-  - repos: #robot需管理的仓库列表
-      - ibforuorg
-      - openUBMC-test
+  - repos:
+      - owner1
+      - owner2/repo1
+
+  - repos:
+      - owner3
+      - owner4/repo2
+    need_issue_has_link_pull_requests: true
+
 sig_info_url: https://dsapi.test.osinfra.cn/query/sig/info
 community_name: openubmc
 event_state_opened: opened

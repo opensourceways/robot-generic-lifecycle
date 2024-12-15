@@ -1,0 +1,3 @@
+config_items:
+  - repos:
+    need_issue_has_link_pull_requests: true

@@ -17,16 +17,23 @@ import (
 	"flag"
 	"github.com/opensourceways/server-common-lib/utils"
 	"github.com/stretchr/testify/assert"
-	"os"
 	"testing"
+)
+
+const (
+	commandPort             = "--port=8511"
+	commandExecFile         = "****"
+	commandConfigFilePrefix = "--config-file="
+	commandHandlePath       = "--handle-path=gitcode-hook"
+	configYaml              = "config.yaml"
 )
 
 func TestGatherOptions(t *testing.T) {
 
 	args := []string{
-		"***",
-		"--port=8511",
-		"--config-file=" + findTestdata(t, "testdata"+string(os.PathSeparator)+"config.yaml"),
+		commandExecFile,
+		commandPort,
+		commandConfigFilePrefix + findTestdata(t, configYaml),
 	}
 
 	opt := new(robotOptions)
@@ -36,10 +43,10 @@ func TestGatherOptions(t *testing.T) {
 	assert.Equal(t, 8511, opt.service.Port)
 
 	args = []string{
-		"***",
-		"--port=8511",
-		"--config-file=" + findTestdata(t, "testdata"+string(os.PathSeparator)+"config11.yaml"),
-		"--handle-path=gitcode-hook",
+		commandExecFile,
+		commandPort,
+		commandConfigFilePrefix + findTestdata(t, "config11.yaml"),
+		commandHandlePath,
 	}
 
 	opt = new(robotOptions)
@@ -47,10 +54,10 @@ func TestGatherOptions(t *testing.T) {
 	assert.Equal(t, true, opt.interrupt)
 
 	args = []string{
-		"***",
-		"--port=8511",
-		"--config-file=" + findTestdata(t, "testdata"+string(os.PathSeparator)+"config12.yaml"),
-		"--handle-path=gitcode-hook",
+		commandExecFile,
+		commandPort,
+		commandConfigFilePrefix + findTestdata(t, "config2.yaml"),
+		commandHandlePath,
 		"--token-path=token",
 		"--del-token=false",
 	}
@@ -59,10 +66,10 @@ func TestGatherOptions(t *testing.T) {
 	assert.Equal(t, true, opt.interrupt)
 
 	args = []string{
-		"***",
-		"--port=8511",
-		"--config-file=" + findTestdata(t, "testdata"+string(os.PathSeparator)+"config.yaml"),
-		"--handle-path=gitcode-hook",
+		commandExecFile,
+		commandPort,
+		commandConfigFilePrefix + findTestdata(t, configYaml),
+		commandHandlePath,
 		"--token-path=token12",
 		"--del-token=false",
 	}
@@ -70,14 +77,14 @@ func TestGatherOptions(t *testing.T) {
 	_, _ = opt.gatherOptions(flag.NewFlagSet(args[0], flag.ExitOnError), args[1:]...)
 	assert.Equal(t, true, opt.interrupt)
 
-	args[4] = "--token-path=" + findTestdata(t, "testdata"+string(os.PathSeparator)+"token")
+	args[4] = "--token-path=" + findTestdata(t, "token")
 
 	opt = new(robotOptions)
 	got, token := opt.gatherOptions(flag.NewFlagSet(args[0], flag.ExitOnError), args[1:]...)
 	assert.Equal(t, false, opt.interrupt)
 	assert.Equal(t, "gitcode-hook", opt.service.HandlePath)
 	want := &configuration{}
-	_ = utils.LoadFromYaml(findTestdata(t, "testdata"+string(os.PathSeparator)+"config.yaml"), want)
+	_ = utils.LoadFromYaml(findTestdata(t, configYaml), want)
 	assert.Equal(t, *want, *got)
-	assert.Equal(t, "gf112421415123123asdada", string(token))
+	assert.Equal(t, "1231****55324", string(token))
 }

@@ -14,249 +14,135 @@
 package main
 
 import (
-	"github.com/opensourceways/server-common-lib/config"
+	"errors"
+	"github.com/opensourceways/server-common-lib/utils"
+	"github.com/stretchr/testify/assert"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-func TestRepoConfigValidate(t *testing.T) {
-	// 测试空的Repos字段
-	rc := &repoConfig{}
-	err := rc.validate()
-	if err == nil {
-		t.Error("Expected an error for empty Repos field, but got nil")
+func TestValidate(t *testing.T) {
+
+	type args struct {
+		cnf  *configuration
+		path string
 	}
 
-	// 测试非空的Repos字段
-	rc.Repos = []string{"repo1", "repo2"}
-	err = rc.validate()
-	if err != nil {
-		t.Errorf("Expected no error for non-empty Repos field, but got %v", err)
-	}
-}
-
-func TestConfigurationValidate(t *testing.T) {
-	// 测试空的配置
-	c := &configuration{}
-	err := c.Validate()
-	if err == nil {
-		t.Error("Expected an error for nil configuration, but got nil")
-	}
-
-	// 测试非空的配置
-	c.ConfigItems = []repoConfig{
+	testCases := []struct {
+		desc string
+		in   args
+		out  [2]error
+	}{
 		{
-			RepoFilter: config.RepoFilter{
-				Repos: []string{"repo1", "repo2"},
+			"config is nil",
+			args{
+				nil,
+				"",
 			},
+			[2]error{nil, errors.New("configuration is nil")},
+		},
+		{
+			"config is empty",
+			args{
+				&configuration{},
+				"",
+			},
+			[2]error{nil, errors.New("missing the follow config: sig_info_url, community_name, " +
+				"event_state_opened, event_state_closed, comment_no_permission_operate_issue, " +
+				"comment_issue_needs_link_pr, comment_list_linking_pull_requests_failure, comment_no_permission_operate_pr")},
+		},
+		{
+			"no valid org or repo in the config",
+			args{
+				&configuration{},
+				"config1.yaml",
+			},
+			[2]error{nil, errors.New("the repositories configuration can not be empty")},
+		},
+		{
+			"the same org and repo conflicts in the config",
+			args{
+				&configuration{},
+				"config2.yaml",
+			},
+			[2]error{nil, errors.New("some org or org/repo exists in both repos and excluded_repos")},
+		},
+		{
+			"a correct config",
+			args{
+				&configuration{},
+				configYaml,
+			},
+			[2]error{nil, nil},
 		},
 	}
-	err = c.Validate()
-	if err != nil {
-		t.Errorf("Expected no error for non-nil configuration, but got %v", err)
+	for i := range testCases {
+		t.Run(testCases[i].desc, func(t *testing.T) {
+			if testCases[i].in.path != "" {
+				err := utils.LoadFromYaml(findTestdata(t, testCases[i].in.path), testCases[i].in.cnf)
+				assert.Equal(t, testCases[i].out[0], err)
+			}
+
+			err1 := testCases[i].in.cnf.Validate()
+			assert.Equal(t, testCases[i].out[1], err1)
+		})
 	}
+
 }
 
-func TestConfigurationGet(t *testing.T) {
-	// 测试空的配置
-	c := &configuration{}
-	rc := c.getRepoConfig("org1", "repo1")
-	if rc != nil {
-		t.Error("Expected nil repoConfig for empty configuration, but got non-nil")
-	}
+func TestGetRepoConfig(t *testing.T) {
+	cnf := &configuration{}
+	got := cnf.getRepoConfig("owner1", "")
+	assert.Equal(t, (*repoConfig)(nil), got)
 
-	// 测试非空的配置，但不匹配的组织和仓库
-	c.ConfigItems = []repoConfig{
+	err := utils.LoadFromYaml(findTestdata(t, configYaml), cnf)
+	assert.Equal(t, nil, err)
+
+	testCases := []struct {
+		desc string
+		in   [2]string
+		out  *repoConfig
+	}{
 		{
-			RepoFilter: config.RepoFilter{
-				Repos: []string{"repo1", "repo2"},
-			},
+			"org and repo are all empty",
+			[2]string{"", ""},
+			(*repoConfig)(nil),
+		},
+		{
+			"org is empty, repo is not empty",
+			[2]string{"", "repo1"},
+			(*repoConfig)(nil),
+		},
+		{
+			"org is not empty, repo is empty",
+			[2]string{"owner3", ""},
+			&cnf.ConfigItems[1],
+		},
+		{
+			"org is not empty, repo is not empty",
+			[2]string{"owner2", "repo1"},
+			&cnf.ConfigItems[0],
 		},
 	}
-	rc = c.getRepoConfig("org2", "repo3")
-	if rc != nil {
-		t.Error("Expected nil repoConfig for non-matching organization and repository, but got non-nil")
-	}
 
-	// 测试非空的配置，匹配的组织和仓库
-	rc = c.getRepoConfig("org1", "repo1")
-	if rc == nil {
-		t.Error("Expected non-nil repoConfig for matching organization and repository, but got nil")
+	for i := range testCases {
+		t.Run(testCases[i].desc, func(t *testing.T) {
+
+			got = cnf.getRepoConfig(testCases[i].in[0], testCases[i].in[1])
+			if testCases[i].out == nil {
+				assert.Equal(t, testCases[i].out, got)
+			} else {
+				assert.Equal(t, true, got != nil)
+				assert.Equal(t, *testCases[i].out, *got)
+			}
+
+		})
 	}
 }
-
-func TestConfigurationNeedLinkPullRequests(t *testing.T) {
-	// 测试空的配置
-	c := &configuration{}
-	needLink := c.NeedLinkPullRequests("org1", "repo1")
-	if needLink {
-		t.Error("Expected false for needing link to pull request for empty configuration, but got true")
-	}
-
-	// 测试非空的配置，但不匹配的组织和仓库
-	c.ConfigItems = []repoConfig{
-		{
-			RepoFilter: config.RepoFilter{
-				Repos: []string{"repo1", "repo2"},
-			},
-		},
-	}
-	needLink = c.NeedLinkPullRequests("org2", "repo3")
-	if needLink {
-		t.Error("Expected false for needing link to pull request for non-matching organization and repository, but got true")
-	}
-
-	// 测试非空的配置，匹配的组织和仓库，但NeedIssueHasLinkPullRequests为false
-	c.ConfigItems[0].NeedIssueHasLinkPullRequests = false
-	needLink = c.NeedLinkPullRequests("org1", "repo1")
-	if needLink {
-		t.Error("Expected false for needing link to pull request when NeedIssueHasLinkPullRequests is false, but got true")
-	}
-
-	// 测试非空的配置，匹配的组织和仓库，NeedIssueHasLinkPullRequests为true
-	c.ConfigItems[0].NeedIssueHasLinkPullRequests = true
-	needLink = c.NeedLinkPullRequests("org1", "repo1")
-	if !needLink {
-		t.Error("Expected true for needing link to pull request when NeedIssueHasLinkPullRequests is true, but got false")
-	}
-}
-
-//
-//func TestValidate(t *testing.T) {
-//
-//	type args struct {
-//		cnf  *configuration
-//		path string
-//	}
-//
-//	testCases := []struct {
-//		no  string
-//		in  args
-//		out []error
-//	}{
-//		{
-//			"case0",
-//			args{
-//				&configuration{},
-//				"",
-//			},
-//			[]error{nil, nil},
-//		},
-//		{
-//			"case1",
-//			args{
-//				&configuration{
-//					ConfigItems: make([]botConfig, 0),
-//				},
-//				"",
-//			},
-//			[]error{nil, nil},
-//		},
-//		{
-//			no: "case2",
-//			in: args{
-//				&configuration{
-//					ConfigItems: []botConfig{
-//						{
-//							config.RepoFilter{
-//								[]string{},
-//								[]string{},
-//							},
-//							"123132",
-//							"fasdadads",
-//							"",
-//						},
-//					},
-//				},
-//				"",
-//			},
-//			out: []error{nil, errors.New("the repositories configuration can not be empty")},
-//		},
-//		{
-//			"case3",
-//			args{
-//				&configuration{},
-//				"config1.yaml",
-//			},
-//			[]error{nil, errors.New("the repositories configuration can not be empty")},
-//		},
-//		{
-//			"case4",
-//			args{
-//				&configuration{},
-//				"config2.yaml",
-//			},
-//			[]error{nil, errors.New("the community_name configuration can not be empty")},
-//		},
-//		{
-//			"case5",
-//			args{
-//				&configuration{},
-//				"config3.yaml",
-//			},
-//			[]error{nil, errors.New("the command_link configuration can not be empty")},
-//		},
-//		{
-//			"case6",
-//			args{
-//				nil,
-//				"",
-//			},
-//			[]error{nil, nil},
-//		},
-//		{
-//			"case7",
-//			args{
-//				&configuration{},
-//				"config.yaml",
-//			},
-//			[]error{nil, nil},
-//		},
-//	}
-//	for i := range testCases {
-//		t.Run(testCases[i].no, func(t *testing.T) {
-//			if testCases[i].in.path != "" {
-//				err := utils.LoadFromYaml(findTestdata(t, "testdata"+string(os.PathSeparator)+testCases[i].in.path), testCases[i].in.cnf)
-//				assert.Equal(t, testCases[i].out[0], err)
-//			}
-//
-//			err1 := testCases[i].in.cnf.Validate()
-//			assert.Equal(t, testCases[i].out[1], err1)
-//		})
-//	}
-//
-//}
-//
-//func TestGetConfig(t *testing.T) {
-//	cnf := &configuration{}
-//
-//	got := cnf.getRepoConfig("owner1", "")
-//	assert.Equal(t, (*botConfig)(nil), got)
-//	_ = utils.LoadFromYaml(findTestdata(t, "testdata"+string(os.PathSeparator)+"config.yaml"), cnf)
-//
-//	got = cnf.getRepoConfig("owner1", "")
-//	assert.Equal(t, "openUBMC1", got.CommunityName)
-//	assert.Equal(t, "fafsadaf", got.CommandLink)
-//
-//	got = cnf.getRepoConfig("owner2", "repo1")
-//	assert.Equal(t, "openUBMC1", got.CommunityName)
-//	assert.Equal(t, "fafsadaf", got.CommandLink)
-//
-//	got = cnf.getRepoConfig("owner3", "repo1")
-//	assert.Equal(t, "openUBMC2", got.CommunityName)
-//	assert.Equal(t, "fafsadaf13", got.CommandLink)
-//
-//	got = cnf.getRepoConfig("owner4", "repo2")
-//	assert.Equal(t, "openUBMC2", got.CommunityName)
-//	assert.Equal(t, "fafsadaf13", got.CommandLink)
-//
-//	got = cnf.getRepoConfig("owner5", "repo2")
-//	assert.Equal(t, (*botConfig)(nil), got)
-//}
 
 func findTestdata(t *testing.T, path string) string {
-
+	path = "testdata" + string(os.PathSeparator) + path
 	i := 0
 retry:
 	absPath, err := filepath.Abs(path)

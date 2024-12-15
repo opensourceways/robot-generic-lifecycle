@@ -118,14 +118,3 @@ func (c *configuration) getRepoConfig(org, repo string) *repoConfig {
 
 	return nil
 }
-
-// NeedLinkPullRequests checks if the link to the pull request is needed for a given organization and repository.
-// Returns true if the link to the pull request is needed, false otherwise.
-func (c *configuration) NeedLinkPullRequests(org, repo string) bool {
-	cnf := c.getRepoConfig(org, repo)
-	if cnf != nil {
-		return cnf.NeedIssueHasLinkPullRequests
-	}
-
-	return false
-}
