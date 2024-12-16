@@ -1,0 +1,6 @@
+config_items:
+  - repos:
+      - owner2/repo1
+    excluded_repos:
+      - owner2/repo1
+    need_issue_has_link_pull_requests: true
