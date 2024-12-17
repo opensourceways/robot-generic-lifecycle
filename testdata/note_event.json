@@ -1,0 +1,17 @@
+{
+  "action": "open",
+  "actionDetail": "",
+  "comment": "/retest",
+  "commentID": "f964f6f9a2a0ab45b4df7a5a4b5500d577108bf7",
+  "commentKind": "MergeRequest",
+  "commenter": "commenter1",
+  "createTime": "2024-12-15T18:35:08+08:00",
+  "eventGUID": "01641beb-95e8-415b-9032-c6eeca3f47ce",
+  "eventType": "Note Hook",
+  "number": "1",
+  "org": "openUBMC-test",
+  "repo": "security-configure",
+  "state": "opened",
+  "time": "2024-12-15T10:35:09Z",
+  "updateTime": "2024-12-15T18:35:08+08:00"
+}
